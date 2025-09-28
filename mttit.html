@@ -1,0 +1,611 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Registro de Mantenimientos - Z Workstations</title>
+  <style>
+    :root{--bg:#f7f9fc;--card:#fff;--accent:#0b74de;--muted:#6b7280}
+    body{font-family:Inter,system-ui,Segoe UI,Roboto,Arial;margin:0;background:var(--bg);color:#111}
+    header{background:linear-gradient(90deg,#0b74de 0%,#0b8fe8 100%);color:#fff;padding:16px}
+    .container{max-width:1100px;margin:18px auto;padding:12px}
+    .card{background:var(--card);border-radius:10px;box-shadow:0 6px 18px rgba(11,116,222,0.08);padding:14px;margin-bottom:12px}
+    .toolbar{display:flex;gap:8px;flex-wrap:wrap}
+    button{background:var(--accent);color:#fff;border:0;padding:10px 14px;border-radius:8px;cursor:pointer}
+    button.secondary{background:#e6eef9;color:var(--accent);border:1px solid rgba(11,116,222,0.12)}
+    h2{margin:6px 0}
+    label{display:block;margin:6px 0;font-size:13px;color:var(--muted)}
+    input,select,textarea{width:100%;padding:8px;border-radius:6px;border:1px solid #ddd}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .full{grid-column:1/-1}
+    .small{width:140px}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:8px;border-bottom:1px solid #eee;text-align:left}
+    .muted{color:var(--muted);font-size:13px}
+    .inline{display:flex;gap:8px;align-items:center}
+    .check-item{display:flex;gap:10px;align-items:flex-start;padding:8px;border-radius:8px;border:1px solid #f1f5f9;margin-bottom:8px}
+    .obs{width:100%;min-height:44px}
+    .actions{display:flex;gap:6px}
+    .pill{background:#f1f5f9;padding:6px 8px;border-radius:999px;font-size:13px;color:var(--muted)}
+    .list-empty{padding:18px;text-align:center;color:var(--muted)}
+    .flex-space{display:flex;justify-content:space-between;gap:12px}
+    .muted-small{color:var(--muted);font-size:12px}
+    @media(max-width:800px){.row{grid-template-columns:1fr}.small{width:100%}}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="container">
+      <h1>Registro de Mantenimientos — Aplicación</h1>
+      <div class="muted">Funciona offline (localStorage) y sincroniza con Firebase si hay conexión.</div>
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="card">
+      <div class="toolbar">
+        <button id="btn-equipo">Registrador: Equipo</button>
+        <button id="btn-mant" class="secondary">Registrador: Mantenimiento</button>
+        <button id="btn-edit" class="secondary">Editar / Historial</button>
+      </div>
+    </div>
+
+    <!-- Secciones -->
+    <div id="section-equipo" class="card" style="display:none"></div>
+    <div id="section-mant" class="card" style="display:none"></div>
+    <div id="section-edit" class="card" style="display:none"></div>
+  </main>
+
+  <!-- jsPDF -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  
+
+  <!-- Firebase (modular) -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import { getFirestore, collection, addDoc, getDocs, query, where, orderBy, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+    // ---------- CONFIGURA TU FIREBASE AQUI (ya incluido) ----------
+    const firebaseConfig = {
+      apiKey: "AIzaSyCnKAykLneBhvay8D_XC8iPcJ6gfvnpkkU",
+      authDomain: "tareas-y-servicios.firebaseapp.com",
+      projectId: "tareas-y-servicios",
+      storageBucket: "tareas-y-servicios.firebasestorage.app",
+      messagingSenderId: "156318307561",
+      appId: "1:156318307561:web:8ac2ff5b37edf9d0098c78"
+    };
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    // ---------- Datos & plantillas ----------
+    const CLIENTES = ["CMNyR La Paz","CMNyR El Alto","Oncoservice","CMNyR SCZ"];
+    const STORAGE_EQUIPOS = 'rm_equipos_v1';
+    const STORAGE_MANT = 'rm_mantenimientos_v1';
+
+    const CHECKLIST_TEMPLATE = [
+      {id:'backup', title:'Backup', items:[
+        {id:'imagen', title:'Crear imagen del disco'},
+        {id:'bios', title:'Comprobar estado de la BIOS'}
+      ]},
+      {id:'discos', title:'Verificación de discos', items:[
+        {id:'pruebaDiscos', title:'Prueba de estado de discos del equipo'}
+      ]},
+      {id:'software', title:'Verificación de software', items:[
+        {id:'cleanmgr', title:'Liberador de espacio en disco'},
+        {id:'limpiezaCarpetas', title:'Limpieza carpetas temporales'},
+        {id:'appsInstaladas', title:'Verificación de aplicaciones instaladas'},
+        {id:'appsInicio', title:'Ajuste de apps de inicio'},
+        {id:'ajusteEncApag', title:'Ajuste apagado/encendido'},
+        {id:'rendimiento', title:'Revisión de rendimiento'},
+        {id:'puntoRest', title:'Crear punto de restauración si aplica'}
+      ]},
+      {id:'hardware', title:'Mantenimiento Hardware', items:[
+        {id:'fansFun', title:'Verificación ventiladores'},
+        {id:'limpiezaInt', title:'Limpieza general interiores/filtros'},
+        {id:'limpiezaRanuras', title:'Limpieza ranuras de enclavamiento'},
+        {id:'limpiezaFans', title:'Limpieza ventiladores'},
+        {id:'pastaTerm', title:'Revisión/cambio pasta térmica'},
+        {id:'psu', title:'Comprobación fuente de poder y batería'}
+      ]},
+      {id:'func', title:'Comprobación de funcionamiento', items:[
+        {id:'encendido', title:'Encendido y verificación del sistema'},
+        {id:'servicios', title:'Funcionamiento de servicios y aplicación'}
+      ]}
+    ];
+
+    // ---------- Storage helpers ----------
+    function loadEquipos(){ return JSON.parse(localStorage.getItem(STORAGE_EQUIPOS) || '[]') }
+    function saveEquipos(arr){ localStorage.setItem(STORAGE_EQUIPOS, JSON.stringify(arr)) }
+    function loadMants(){ return JSON.parse(localStorage.getItem(STORAGE_MANT) || '[]') }
+    function saveMants(arr){ localStorage.setItem(STORAGE_MANT, JSON.stringify(arr)) }
+
+    function el(id){ return document.getElementById(id) }
+
+    // ---------- UI builders ----------
+    function buildEquipoSection(){
+      const root = el('section-equipo'); root.innerHTML=''; root.style.display='block';
+      const form = document.createElement('div'); form.className='card';
+      form.innerHTML = `
+        <h2>Registrar Equipo</h2>
+        <div class="row">
+          <div><label>Cliente</label><select id="eq-cliente">${CLIENTES.map(c=>`<option>${c}</option>`).join('')}</select></div>
+          <div><label>Equipo (modelo)</label><input id="eq-equipo" placeholder="Ej: HP Z8 G5" /></div>
+          <div><label>CPU</label><input id="eq-cpu" placeholder="Ej: Intel Xeon ..." /></div>
+          <div><label>Numero de serie</label><input id="eq-serial" /></div>
+          <div><label>Ubicación</label><input id="eq-ubic" /></div>
+          <div><label>Sistema operativo</label><input id="eq-so" /></div>
+          <div><label>IP asignada</label><input id="eq-ip" /></div>
+          <div><label>Versión de software</label><input id="eq-vers" /></div>
+          <div class="full"><label>Código AnyDesk</label><input id="eq-any" /></div>
+          <div class="full"><label>Contraseña</label><input id="eq-pass" /></div>
+          <div class="full inline"><button id="save-equipo">Guardar equipo</button><div class="pill">Los equipos se guardan localmente y se intentan sincronizar a Firebase</div></div>
+        </div>
+      `;
+      root.appendChild(form);
+
+      const listCard = document.createElement('div'); listCard.className='card';
+      listCard.innerHTML = `<h2>Equipos guardados</h2><div id="equipos-list"></div>`;
+      root.appendChild(listCard);
+
+      // events
+      el('save-equipo').addEventListener('click', async ()=>{
+        const equipos = loadEquipos();
+        const nuevo = {
+          id: 'EQ-'+Date.now(),
+          cliente: el('eq-cliente').value,
+          equipo: el('eq-equipo').value,
+          cpu: el('eq-cpu').value,
+          serial: el('eq-serial').value,
+          ubicacion: el('eq-ubic').value,
+          so: el('eq-so').value,
+          ip: el('eq-ip').value,
+          version: el('eq-vers').value,
+          anydesk: el('eq-any').value,
+          pass: el('eq-pass').value,
+          creado: new Date().toISOString(),
+          firestoreId: null
+        };
+        equipos.push(nuevo); saveEquipos(equipos); renderEquiposList();
+        // intentar subir a Firebase (sin bloquear la UI)
+        try {
+          const docRef = await addDoc(collection(db,'equipos'), {...nuevo, createdAt: new Date().toISOString()});
+          // guardar id firestore localmente
+          nuevo.firestoreId = docRef.id;
+          saveEquipos(equipos);
+          console.log('Equipo subido a Firestore', docRef.id);
+        } catch(err) {
+          console.warn('No se pudo subir equipo a Firestore (offline o error):', err);
+        }
+        alert('Equipo guardado (local). Intentando sincronizar en segundo plano.');
+      });
+
+      function renderEquiposList(){
+        const cont = el('equipos-list'); const equipos = loadEquipos();
+        if(!equipos.length){ cont.innerHTML=`<div class='list-empty'>No hay equipos guardados.</div>`; return }
+        const table = document.createElement('table');
+        table.innerHTML = `<thead><tr><th>Cliente</th><th>Equipo</th><th>Serial</th><th>Ubicación</th><th></th></tr></thead>`;
+        const tbody = document.createElement('tbody');
+        equipos.forEach(e=>{
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${e.cliente}</td><td>${e.equipo}</td><td>${e.serial||'-'}</td><td>${e.ubicacion||'-'}</td>
+            <td class='actions'>
+              <button data-id='${e.id}' class='edit-eq secondary'>Editar</button>
+              <button data-id='${e.id}' class='del-eq secondary'>Eliminar</button>
+            </td>`;
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody); cont.innerHTML=''; cont.appendChild(table);
+        // bind
+        cont.querySelectorAll('.del-eq').forEach(b=>b.addEventListener('click', ev=>{
+          const id = ev.target.dataset.id; if(confirm('Eliminar equipo?')){
+            const arr = loadEquipos().filter(x=>x.id!==id); saveEquipos(arr); renderEquiposList();
+          }
+        }));
+        cont.querySelectorAll('.edit-eq').forEach(b=>b.addEventListener('click', ev=>{
+          const id = ev.target.dataset.id; const equipos = loadEquipos(); const e = equipos.find(x=>x.id===id);
+          if(!e) return;
+          el('eq-cliente').value = e.cliente;
+          el('eq-equipo').value = e.equipo;
+          el('eq-cpu').value = e.cpu;
+          el('eq-serial').value = e.serial;
+          el('eq-ubic').value = e.ubicacion;
+          el('eq-so').value = e.so;
+          el('eq-ip').value = e.ip;
+          el('eq-vers').value = e.version;
+          el('eq-any').value = e.anydesk;
+          el('eq-pass').value = e.pass;
+          // cambiar el handler para actualizar
+          const btn = el('save-equipo'); btn.textContent='Actualizar equipo';
+          btn.onclick = async ()=>{
+            Object.assign(e, {
+              cliente: el('eq-cliente').value,
+              equipo: el('eq-equipo').value,
+              cpu: el('eq-cpu').value,
+              serial: el('eq-serial').value,
+              ubicacion: el('eq-ubic').value,
+              so: el('eq-so').value,
+              ip: el('eq-ip').value,
+              version: el('eq-vers').value,
+              anydesk: el('eq-any').value,
+              pass: el('eq-pass').value
+            });
+            saveEquipos(equipos); renderEquiposList(); btn.textContent='Guardar equipo'; btn.onclick = null;
+            // opcional: actualizar en Firestore si tiene firestoreId
+            if(e.firestoreId){
+              try{ await setDoc(doc(db,'equipos',e.firestoreId), {...e}); console.log('Equipo actualizado en Firestore'); }catch(err){console.warn('No se pudo actualizar en Firestore',err)}
+            }
+            alert('Equipo actualizado');
+            location.reload();
+          };
+        }));
+      }
+      renderEquiposList();
+    }
+
+    function buildMantSection(){
+      const root = el('section-mant'); root.innerHTML=''; root.style.display='block';
+      root.innerHTML = `
+        <h2>Registrar Mantenimiento</h2>
+        <div class="row">
+          <div>
+            <label>Cliente</label>
+            <select id="mant-cliente"><option value="">-- seleccionar cliente --</option>${CLIENTES.map(c=>`<option>${c}</option>`).join('')}</select>
+          </div>
+          <div>
+            <label>Equipo (seleccione para cargar datos)</label>
+            <select id="mant-equipo"><option value="">-- seleccionar equipo --</option></select>
+          </div>
+          <div class="full"><button id="btn-cargar-eq">Cargar equipo y generar checklist</button></div>
+        </div>
+        <div id="mant-workarea"></div>
+      `;
+      const selectEq = root.querySelector('#mant-equipo');
+      function fillEquiposForCliente(cliente){
+        selectEq.innerHTML = '<option value="">-- seleccionar equipo --</option>';
+        loadEquipos().filter(e=>e.cliente===cliente).forEach(e=>{
+          const opt = document.createElement('option'); opt.value=e.id; opt.textContent = `${e.equipo} — ${e.serial||e.ubicacion||''}`; selectEq.appendChild(opt);
+        });
+      }
+      root.querySelector('#mant-cliente').addEventListener('change', (ev)=>{ fillEquiposForCliente(ev.target.value) });
+      root.querySelector('#btn-cargar-eq').addEventListener('click', ()=> {
+        const cliente = root.querySelector('#mant-cliente').value;
+        const eqId = root.querySelector('#mant-equipo').value;
+        if(!cliente){ alert('Selecciona un cliente'); return }
+        if(!eqId){ alert('Selecciona un equipo guardado'); return }
+        const equipo = loadEquipos().find(x=>x.id===eqId);
+        renderChecklist(equipo);
+      });
+
+      function renderChecklist(equipo){
+        const wa = root.querySelector('#mant-workarea'); wa.innerHTML='';
+        const info = document.createElement('div'); info.className='card';
+        info.innerHTML = `<div class='flex-space'><div><strong>${equipo.equipo}</strong><div class='muted'>${equipo.cliente} • ${equipo.serial||''} • ${equipo.ubicacion||''}</div></div><div class='pill'>Creado: ${new Date(equipo.creado).toLocaleString()}</div></div>`;
+        wa.appendChild(info);
+
+        // checklist
+        const form = document.createElement('div'); form.className='card';
+        form.innerHTML = `<h3>Checklist</h3><div id='checklist-area'></div><div class='full inline'><button id='save-mant'>Guardar mantenimiento</button><button id='pdf-mant' class='secondary'>Exportar PDF</button><div class='muted'>Se guardará localmente y se intentará sincronizar a Firebase</div></div>`;
+        wa.appendChild(form);
+        const ca = form.querySelector('#checklist-area');
+
+        CHECKLIST_TEMPLATE.forEach(section=>{
+          const sdiv = document.createElement('div'); sdiv.innerHTML = `<h4><strong>${section.title}</strong></h4>`;
+          section.items.forEach(it=>{
+            const id = 'ci_'+section.id+'_'+it.id+'_'+Date.now()+Math.random().toString(36).slice(2,5);
+            const div = document.createElement('div'); div.className='check-item';
+            div.innerHTML = `
+              <div style='width:24px'><input type='checkbox' data-key='${section.id}|${it.id}' id='${id}' /></div>
+              <div style='flex:1'>
+                <label for='${id}'><strong>${it.title}</strong></label>
+                <div class='muted'>observación:</div>
+                <textarea class='obs' data-key='obs|${section.id}|${it.id}' placeholder='Observaciones (opcional)'></textarea>
+              </div>
+            `;
+            sdiv.appendChild(div);
+          });
+          ca.appendChild(sdiv);
+        });
+
+        form.querySelector('#save-mant').addEventListener('click', async ()=>{
+          const respuestas = [];
+          form.querySelectorAll('input[type=checkbox]').forEach(ch=>{
+            const [sec,it] = ch.dataset.key.split('|');
+            const obs = form.querySelector(`textarea[data-key='obs|${sec}|${it}']`).value;
+            respuestas.push({section:sec,item:it,checked:ch.checked,obs:obs});
+          });
+          const mantenimientos = loadMants();
+          const nuevo = {
+            id: 'M-'+Date.now(),
+            equipoId: equipo.id,
+            equipoLabel: `${equipo.equipo} — ${equipo.serial||equipo.ubicacion||''}`,
+            cliente: equipo.cliente,
+            fecha: new Date().toISOString(),
+            checklist: respuestas,
+            firestoreId: null
+          };
+          mantenimientos.push(nuevo); saveMants(mantenimientos);
+
+          // intentar subir a Firestore (no bloqueante)
+          try {
+            // Para Firestore, lo más práctico: guardar toda la estructura
+            const docRef = await addDoc(collection(db,'mantenimientos'), {...nuevo});
+            nuevo.firestoreId = docRef.id;
+            saveMants(mantenimientos);
+            console.log('Mantenimiento subido a Firestore', docRef.id);
+          } catch(err) {
+            console.warn('No se pudo subir mantenimiento a Firestore:', err);
+          }
+
+          alert('Mantenimiento guardado (local). Intentando sincronizar en segundo plano.');
+          renderMantHistoryForEquipo(equipo.id);
+        });
+
+        form.querySelector('#pdf-mant').addEventListener('click', ()=> {
+          // generar objeto mantData con solo lo marcado y observaciones
+          const mantData = { fecha: new Date().toISOString(), checklist: {} };
+          form.querySelectorAll('input[type=checkbox]').forEach(ch=>{
+            const [sec,it] = ch.dataset.key.split('|');
+            const obsEl = form.querySelector(`textarea[data-key='obs|${sec}|${it}']`);
+            mantData.checklist[it] = { marcado: ch.checked, obs: obsEl ? obsEl.value : '' };
+          });
+          generatePDF(equipo, mantData);
+        });
+
+        renderMantHistoryForEquipo(equipo.id);
+      }
+
+      function renderMantHistoryForEquipo(eid){
+        const wa = root.querySelector('#mant-workarea');
+        let hist = wa.querySelector('#mant-history');
+        if(hist) hist.remove();
+        hist = document.createElement('div'); hist.id='mant-history'; hist.className='card';
+        const items = loadMants().filter(m=>m.equipoId===eid).sort((a,b)=>b.fecha.localeCompare(a.fecha));
+        hist.innerHTML = `<h3>Historial de mantenimientos (${items.length})</h3>`;
+        if(!items.length){ hist.innerHTML += `<div class='list-empty'>Aún no hay mantenimientos guardados para este equipo.</div>`; wa.appendChild(hist); return }
+        const table = document.createElement('table');
+        table.innerHTML = `<thead><tr><th>Fecha</th><th>Cliente</th><th>Equipo</th><th></th></tr></thead>`;
+        const tbody = document.createElement('tbody');
+        items.forEach(m=>{
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${new Date(m.fecha).toLocaleString()}</td><td>${m.cliente}</td><td>${m.equipoLabel}</td>
+            <td class='actions'>
+              <button data-id='${m.id}' class='view-m secondary'>Ver</button>
+              <button data-id='${m.id}' class='pdf-m secondary'>Exportar PDF</button>
+              <button data-id='${m.id}' class='del-m secondary'>Eliminar</button>
+            </td>`;
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody); hist.appendChild(table); wa.appendChild(hist);
+
+        hist.querySelectorAll('.view-m').forEach(b=>b.addEventListener('click', ev=>{
+          const id = ev.target.dataset.id; const m = loadMants().find(x=>x.id===id); if(!m) return;
+          const w = window.open('','_blank','width=800,height=600'); w.document.write('<pre>'+JSON.stringify(m,null,2)+'</pre>');
+        }));
+        hist.querySelectorAll('.del-m').forEach(b=>b.addEventListener('click', ev=>{
+          const id = ev.target.dataset.id; if(confirm('Eliminar mantenimiento?')) {
+            const arr = loadMants().filter(x=>x.id!==id); saveMants(arr); renderMantHistoryForEquipo(eid);
+          }
+        }));
+        hist.querySelectorAll('.pdf-m').forEach(b=>b.addEventListener('click', ev=>{
+          const id = ev.target.dataset.id; const m = loadMants().find(x=>x.id===id); if(!m) return;
+          // construir mantData en el formato esperado por generatePDF
+          const mantData = { fecha: m.fecha, checklist: {} };
+          m.checklist.forEach(it => { mantData.checklist[it.item] = { marcado: it.checked, obs: it.obs }});
+          // equipo
+          const equipo = loadEquipos().find(e=>e.id===m.equipoId);
+          generatePDF(equipo, mantData);
+        }));
+      }
+    }
+
+    function buildEditSection(){
+      const root = el('section-edit'); root.innerHTML=''; root.style.display='block';
+      root.innerHTML = `
+        <h2>Editar / Historial</h2>
+        <div class="card">
+          <h3>Equipos</h3>
+          <div id="edit-equip-list"></div>
+        </div>
+        <div class="card">
+          <h3>Historial de Mantenimientos</h3>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+            <div><label>Fecha inicio</label><input type="date" id="filter-start"></div>
+            <div><label>Fecha fin</label><input type="date" id="filter-end"></div>
+            <div style="align-self:end"><button id="btn-filter" class="secondary">Filtrar</button></div>
+            <div style="align-self:end"><button id="btn-export-range" class="secondary">Exportar rango a PDF</button></div>
+          </div>
+          <div id="edit-mant-list"></div>
+        </div>
+      `;
+
+      function renderEquipos(){
+        const contE = el('edit-equip-list'); const eqs = loadEquipos();
+        if(!eqs.length){ contE.innerHTML=`<div class='list-empty'>No hay equipos</div>`; return; }
+        const t = document.createElement('table'); t.innerHTML = `<thead><tr><th>Cliente</th><th>Equipo</th><th>Serial</th><th></th></tr></thead>`;
+        const tb = document.createElement('tbody');
+        eqs.forEach(e=>{ const tr=document.createElement('tr'); tr.innerHTML=`<td>${e.cliente}</td><td>${e.equipo}</td><td>${e.serial||'-'}</td><td class='actions'><button data-id='${e.id}' class='go-edit secondary'>Abrir</button> <button data-id='${e.id}' class='del-eq secondary'>Eliminar</button></td>`; tb.appendChild(tr) });
+        t.appendChild(tb); contE.innerHTML=''; contE.appendChild(t);
+        contE.querySelectorAll('.go-edit').forEach(b=>b.addEventListener('click',ev=>{
+          const id = ev.target.dataset.id; showSection('equipo'); buildEquipoSection(); setTimeout(()=>{ document.querySelectorAll('#equipos-list table button.edit-eq').forEach(btn=>{ if(btn.dataset.id===id) btn.click() }) },200);
+        }));
+        contE.querySelectorAll('.del-eq').forEach(b=>b.addEventListener('click',ev=>{ if(confirm('Eliminar equipo?')){ const id=ev.target.dataset.id; const arr=loadEquipos().filter(x=>x.id!==id); saveEquipos(arr); renderEquipos(); }}));
+      }
+      renderEquipos();
+
+      async function renderMantenimientos(filterStartIso=null, filterEndIso=null){
+        const contM = el('edit-mant-list'); const m = loadMants().slice().sort((a,b)=>b.fecha.localeCompare(a.fecha));
+        let filtered = m;
+        if(filterStartIso) filtered = filtered.filter(x => x.fecha >= filterStartIso);
+        if(filterEndIso) filtered = filtered.filter(x => x.fecha <= filterEndIso);
+        if(!filtered.length){ contM.innerHTML=`<div class='list-empty'>No hay mantenimientos en este rango</div>`; return; }
+        const t = document.createElement('table'); t.innerHTML = `<thead><tr><th>Fecha</th><th>Cliente</th><th>Equipo</th><th></th></tr></thead>`;
+        const tb = document.createElement('tbody');
+        filtered.forEach(x=>{ const tr=document.createElement('tr'); tr.innerHTML=`<td>${new Date(x.fecha).toLocaleString()}</td><td>${x.cliente}</td><td>${x.equipoLabel}</td><td class='actions'><button data-id='${x.id}' class='view-m secondary'>Ver</button> <button data-id='${x.id}' class='pdf-m secondary'>Exportar PDF</button> <button data-id='${x.id}' class='del-m secondary'>Eliminar</button></td>`; tb.appendChild(tr) });
+        t.appendChild(tb); contM.innerHTML=''; contM.appendChild(t);
+
+        contM.querySelectorAll('.view-m').forEach(b=>b.addEventListener('click',ev=>{ const id = ev.target.dataset.id; const rec = loadMants().find(x=>x.id===id); window.open().document.write('<pre>'+JSON.stringify(rec,null,2)+'</pre>'); }));
+        contM.querySelectorAll('.del-m').forEach(b=>b.addEventListener('click',ev=>{ const id=ev.target.dataset.id; if(confirm('Eliminar mantenimiento?')){ const arr = loadMants().filter(x=>x.id!==id); saveMants(arr); renderMantenimientos(filterStartIso,filterEndIso); }}));
+        contM.querySelectorAll('.pdf-m').forEach(b=>b.addEventListener('click',ev=>{
+          const id = ev.target.dataset.id; const mrec = loadMants().find(x=>x.id===id); const mantData = { fecha: mrec.fecha, checklist: {} }; mrec.checklist.forEach(it=>{ mantData.checklist[it.item] = { marcado: it.checked, obs: it.obs } }); const equipo = loadEquipos().find(e=>e.id===mrec.equipoId); generatePDF(equipo,mantData);
+        }));
+      }
+
+      el('btn-filter').onclick = ()=>{
+        const s = el('filter-start').value; const e = el('filter-end').value;
+        const sIso = s ? new Date(s + 'T00:00:00').toISOString() : null;
+        const eIso = e ? new Date(e + 'T23:59:59').toISOString() : null;
+        renderMantenimientos(sIso, eIso);
+      };
+
+      el('btn-export-range').onclick = ()=>{
+        const s = el('filter-start').value; const e = el('filter-end').value;
+        const sIso = s ? new Date(s + 'T00:00:00').toISOString() : null;
+        const eIso = e ? new Date(e + 'T23:59:59').toISOString() : null;
+        const filtered = loadMants().filter(x => {
+          if(sIso && x.fecha < sIso) return false;
+          if(eIso && x.fecha > eIso) return false;
+          return true;
+        }).sort((a,b)=>a.fecha.localeCompare(b.fecha));
+        if(!filtered.length){ alert('No hay mantenimientos en ese rango'); return; }
+        // convertir a array de pairs (equipo, mantData)
+        const toExport = filtered.map(m => {
+          const equipo = loadEquipos().find(e => e.id === m.equipoId) || { equipo: m.equipoLabel, serial: '' };
+          const mantData = { fecha: m.fecha, checklist: {} };
+          m.checklist.forEach(it=>{ mantData.checklist[it.item] = { marcado: it.checked, obs: it.obs }});
+          return { equipo, mantData };
+        });
+        generatePDFBatch(toExport);
+      };
+
+      // render inicial: todos
+      renderMantenimientos();
+    }
+
+    // ---------- PDF generation ----------
+    function generatePDF(equipo, mantData){
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+      const logo = new Image(); logo.src = 'logo.png';
+      logo.onload = () => {
+        try { doc.addImage(logo, 'PNG', 460, 20, 100, 40); } catch(e){ console.warn('logo no agregado', e); }
+        renderSinglePDF(doc, equipo, mantData);
+      };
+      logo.onerror = () => { renderSinglePDF(doc, equipo, mantData); };
+      // si tarda la carga, también permitimos generar sin logo (renderSinglePDF será llamada por onload o aquí)
+      setTimeout(()=>{ if(!logo.complete) renderSinglePDF(doc, equipo, mantData); },400);
+    }
+
+    function renderSinglePDF(doc, equipo, mantData){
+  let y = 50;
+
+  // Título
+  doc.setFontSize(18);
+  doc.setFont('helvetica','bold');
+  doc.text("Checklist de Mantenimiento Equipos", 40, y);
+  y += 30;
+
+  // Info equipo
+  doc.setFontSize(12);
+  doc.setFont('helvetica','normal');
+  doc.text(`Cliente: ${equipo.cliente || ''}`, 40, y); y += 16;
+  doc.text(`Equipo: ${equipo.equipo || equipo.equipoLabel || ''}`, 40, y); y += 16;
+  doc.text(`N° Serie: ${equipo.serial || ''}`, 40, y); y += 24;
+
+  // Llamamos directamente a la función de la tabla, sin logo
+  drawChecklistTable();
+
+  function drawChecklistTable(){
+    // Cabecera tabla
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(12);
+    let startY = y;
+    doc.text("Sección", 40, startY);
+    doc.text("Ítem", 150, startY);
+    doc.text("Ejecutado", 350, startY);
+    doc.text("Observación", 420, startY);
+    startY += 5;
+
+    doc.setLineWidth(0.5);
+    doc.line(40, startY, 560, startY);
+    startY += 18;
+
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(11);
+
+    for(const sec of CHECKLIST_TEMPLATE){
+      const items = sec.items.filter(it => mantData.checklist[it.id] && mantData.checklist[it.id].marcado);
+      if(!items.length) continue;
+
+      doc.setFont('helvetica','bold');
+      doc.text(sec.title, 40, startY);
+      doc.setFont('helvetica','normal');
+      startY += 14;
+
+      items.forEach(it => {
+        const val = mantData.checklist[it.id];
+        doc.text(it.title, 150, startY);
+        doc.text(val.marcado ? "OK" : "", 360, startY);
+        const obsText = val.obs || '';
+        const splitObs = doc.splitTextToSize(obsText, 130);
+        doc.text(splitObs, 420, startY);
+        startY += 14 * (splitObs.length);
+        if(startY > 740){ doc.addPage(); startY = 40; }
+      });
+      startY += 10;
+    }
+    if(startY + 50 > 800) { doc.addPage(); startY = 80; }
+    // línea de firma primero
+    doc.setLineWidth(0.5);
+    doc.line(40, startY + 30, 250, startY + 30); // línea para firma
+    // texto debajo de la línea
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(12);
+    doc.text("Técnico Hansa Soluciones Médicas", 40, startY + 44);
+
+
+    const fileName = `Checklist_${equipo.equipo||'equipo'}_${equipo.serial||'sinSerial'}.pdf`;
+    doc.save(fileName);
+  }
+}
+
+
+    function generatePDFBatch(listOfPairs){
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+      let first = true;
+      const logo = new Image(); logo.src = 'logo.png';
+      logo.onload = async () => {
+        for(const pair of listOfPairs){
+          if(!first) doc.addPage();
+          try { doc.addImage(logo,'PNG',460,20,100,40); } catch(e){ }
+          renderSinglePDF(doc, pair.equipo, pair.mantData);
+          first = false;
+        }
+        doc.save(`Mantenimientos_${new Date().toISOString().slice(0,10)}.pdf`);
+      };
+      logo.onerror = async () => {
+        for(const pair of listOfPairs){
+          if(!first) doc.addPage();
+          renderSinglePDF(doc, pair.equipo, pair.mantData);
+          first = false;
+        }
+        doc.save(`Mantenimientos_${new Date().toISOString().slice(0,10)}.pdf`);
+      };
+      // fallback si no carga el logo en x ms:
+      setTimeout(async ()=>{ if(!logo.complete){ for(const pair of listOfPairs){ if(!first) doc.addPage(); renderSinglePDF(doc, pair.equipo, pair.mantData); first=false } doc.save(`Mantenimientos_${new Date().toISOString().slice(0,10)}.pdf`) } },1200);
+    }
+
+    // ---------- Nav ----------
+    function hideAll(){ ['section-equipo','section-mant','section-edit'].forEach(id=>el(id).style.display='none') }
+    function showSection(name){ hideAll(); if(name==='equipo') buildEquipoSection(); if(name==='mant') buildMantSection(); if(name==='edit') buildEditSection(); }
+
+    el('btn-equipo').addEventListener('click', ()=> showSection('equipo'));
+    el('btn-mant').addEventListener('click', ()=> showSection('mant'));
+    el('btn-edit').addEventListener('click', ()=> showSection('edit'));
+
+    // abrir por defecto
+    showSection('equipo');
+
+  </script>
+</body>
+</html>
