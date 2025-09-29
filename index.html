@@ -577,7 +577,7 @@
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF({ unit: 'pt', format: 'a4' });
       let first = true;
-      const logo = new Image(); logo.src = 'logo.png';
+      const logo = new Image(); logo.src = 'https://github.com/LANZAARIEL/registro-mantenimientos/blob/main/logo.png';
       logo.onload = async () => {
         for(const pair of listOfPairs){
           if(!first) doc.addPage();
@@ -613,6 +613,7 @@
   </script>
 </body>
 </html>
+
 
 
 
