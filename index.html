@@ -63,7 +63,7 @@
   <!-- Firebase (modular) -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-    import { getFirestore, collection, addDoc, getDocs, query, where, orderBy, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+    import { getFirestore, collection, addDoc, getDocs, query, where, orderBy, doc, getDoc, setDoc  } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
     // ---------- CONFIGURA TU FIREBASE AQUI (ya incluido) ----------
     const firebaseConfig = {
@@ -76,6 +76,63 @@
     };
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
+    
+
+
+    async function syncFromFirebase() {
+  console.log("⏳ Sincronizando datos desde Firebase...");
+
+  // Equipos
+  const equiposSnap = await getDocs(collection(db, "equipos"));
+  const equipos = equiposSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  localStorage.setItem("equipos", JSON.stringify(equipos));
+
+  // Mantenimientos
+  const mantSnap = await getDocs(collection(db, "mantenimientos"));
+  const mantenimientos = mantSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  localStorage.setItem("mantenimientos", JSON.stringify(mantenimientos));
+
+  console.log("✅ Sincronización completada.");
+}
+
+
+// --- Guardar equipo (evita duplicados) ---
+async function saveEquipo(equipo) {
+  const q = query(collection(db, "equipos"), where("serial", "==", equipo.serial));
+  const snapshot = await getDocs(q);
+
+  if (!snapshot.empty) {
+    console.log("⚠️ Equipo ya existe en Firebase, no se duplica.");
+    return;
+  }
+
+  await addDoc(collection(db, "equipos"), equipo);
+  console.log("✅ Equipo guardado en Firebase.");
+}
+
+
+// --- Guardar mantenimiento (evita duplicados) ---
+async function saveMantenimiento(mant) {
+  // Regla: no repetir el mismo equipoId + fecha
+  const q = query(
+    collection(db, "mantenimientos"),
+    where("equipoId", "==", mant.equipoId),
+    where("fecha", "==", mant.fecha)
+  );
+  const snapshot = await getDocs(q);
+
+  if (!snapshot.empty) {
+    console.log("⚠️ Mantenimiento ya existe en Firebase, no se duplica.");
+    return;
+  }
+
+  await addDoc(collection(db, "mantenimientos"), mant);
+  console.log("✅ Mantenimiento guardado en Firebase.");
+}
+
+
+
+
 
     // ---------- Datos & plantillas ----------
     const CLIENTES = ["CMNyR La Paz","CMNyR El Alto","Oncoservice","CMNyR SCZ"];
@@ -485,7 +542,7 @@
     function generatePDF(equipo, mantData){
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-      const logo = new Image(); logo.src = 'https://github.com/LANZAARIEL/registro-mantenimientos/blob/main/logo.png';
+      const logo = new Image(); logo.src = 'logo.png';
       logo.onload = () => {
         try { doc.addImage(logo, 'PNG', 460, 20, 100, 40); } catch(e){ console.warn('logo no agregado', e); }
         renderSinglePDF(doc, equipo, mantData);
@@ -577,7 +634,7 @@
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF({ unit: 'pt', format: 'a4' });
       let first = true;
-      const logo = new Image(); logo.src = 'https://github.com/LANZAARIEL/registro-mantenimientos/blob/main/logo.png';
+      const logo = new Image(); logo.src = 'logo.png';
       logo.onload = async () => {
         for(const pair of listOfPairs){
           if(!first) doc.addPage();
@@ -609,6 +666,9 @@
 
     // abrir por defecto
     showSection('equipo');
+
+    
+window.addEventListener("load", ()=>{syncFromFirebase();});
 
   </script>
 </body>
