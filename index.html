@@ -485,7 +485,7 @@
     function generatePDF(equipo, mantData){
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-      const logo = new Image(); logo.src = 'logo.png';
+      const logo = new Image(); logo.src = 'https://github.com/LANZAARIEL/registro-mantenimientos/blob/main/logo.png';
       logo.onload = () => {
         try { doc.addImage(logo, 'PNG', 460, 20, 100, 40); } catch(e){ console.warn('logo no agregado', e); }
         renderSinglePDF(doc, equipo, mantData);
@@ -613,6 +613,7 @@
   </script>
 </body>
 </html>
+
 
 
 
