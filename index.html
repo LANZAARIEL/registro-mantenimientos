@@ -186,8 +186,8 @@ async function saveMantenimiento(mant) {
         <h2>Registrar Equipo</h2>
         <div class="row">
           <div><label>Cliente</label><select id="eq-cliente">${CLIENTES.map(c=>`<option>${c}</option>`).join('')}</select></div>
-          <div><label>Equipo (modelo)</label><input id="eq-equipo" placeholder="Ej: HP Z8 G5" /></div>
-          <div><label>CPU</label><input id="eq-cpu" placeholder="Ej: Intel Xeon ..." /></div>
+          <div><label>Nombre del Equipo (modelo)</label><input id="eq-equipo" placeholder="Monaco Server" /></div>
+          <div><label>Equipo</label><input id="eq-cpu" placeholder="Ej: HP Z8 G5 ..." /></div>
           <div><label>Numero de serie</label><input id="eq-serial" /></div>
           <div><label>Ubicación</label><input id="eq-ubic" /></div>
           <div><label>Sistema operativo</label><input id="eq-so" /></div>
@@ -673,6 +673,7 @@ window.addEventListener("load", ()=>{syncFromFirebase();});
   </script>
 </body>
 </html>
+
 
 
 
